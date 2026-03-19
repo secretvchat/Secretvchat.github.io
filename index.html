@@ -1,0 +1,2238 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>चैट, गेस्ट गेम, और साइन-इन</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        
+        /* 1. BODY: पूरी स्क्रीन की ऊंचाई (100vh) ले, Flex-Column हो, और कोई ओवरफ़्लो न हो */
+        body {
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            overflow: hidden; /* पूरी बॉडी पर अनावश्यक स्क्रॉल को रोकें */
+        }
+        
+        /* 2. MAIN: बची हुई सारी जगह ले (flex-grow: 1), min-height 0 हो, और खुद एक Flex Container बने */
+        #main-content {
+             flex-grow: 1;
+             display: flex; 
+             flex-direction: column;
+             overflow-y: hidden; 
+             min-height: 0; 
+             /* FIX: मुख्य बदलाव यहाँ है। यह सुनिश्चित करता है कि इसका चाइल्ड जो hidden नहीं है वह पूरी जगह ले */
+             position: relative; /* ताकि चाइल्ड ओवरले (Auth View) सही से पोजीशन हो */
+        }
+
+        /* 3. AUTH VIEW: यह सुनिश्चित करता है कि जब Auth View चालू हो तो वह पूरी बची हुई जगह (main-content) ले */
+        #auth-view {
+            /* FIX: auth-view को पूरी जगह भरने के लिए flex-grow 1 और min-height 0 दें */
+            flex-grow: 1; 
+            min-height: 0;
+        }
+
+        /* 4. CHAT VIEW, GAME VIEWS: ये भी अपनी जगह लें और जब hidden न हों तब दिखें */
+        #chat-view, #game-lobby-view, #active-game-view {
+             flex-grow: 1;
+             min-height: 0; 
+        }
+
+        /* 5. CHAT AREA: बची हुई सारी जगह ले, Flex-Column बने, और min-height 0 हो */
+        #chat-area {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0; 
+        }
+
+        /* 6. CHAT CONTAINER: स्क्रॉलिंग क्षेत्र */
+        #chat-container {
+            flex-grow: 1; 
+            overflow-y: auto; 
+            scroll-behavior: smooth;
+            padding: 1rem;
+        }
+        
+        /* 🎨 CHAT BACKGROUND STYLES */
+        .dark #chat-container { 
+            background-color: #111827; 
+        }
+        .light #chat-container { 
+            background-color: #f7f7f7; 
+        }
+        
+        .message-bubble { word-wrap: break-word; overflow-wrap: break-word; }
+
+        /* Modal specific styling - NO CHANGE */
+        .modal { z-index: 100; background-color: rgba(0, 0, 0, 0.7); }
+        .modal-content {
+            transform: translateY(0%);
+            animation: slide-in 0.3s ease-out;
+            max-height: 90vh; 
+            overflow-y: auto;
+        }
+        @keyframes slide-in {
+            from { transform: translateY(-20%); opacity: 0; }
+            to { transform: translateY(0%); opacity: 1; }
+        }
+        
+        /* Game Specific Styles, Responsive adjustments */
+        .game-view {
+            background: linear-gradient(135deg, #111827, #1f2937);
+            color: white;
+            padding: 1rem;
+            overflow-y: auto;
+            flex-grow: 1;
+        }
+        
+        .game-card {
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .game-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px rgba(245, 158, 11, 0.2);
+        }
+        
+        /* NEW GAME STYLES */
+        #qc-target-button {
+             width: 100px;
+             height: 100px;
+             background-color: #4f46e5; /* Indigo 600 */
+             border-radius: 50%;
+             transition: background-color 0.1s ease-out;
+             cursor: pointer;
+        }
+        
+        .flashing {
+            animation: flash 0.1s infinite alternate;
+        }
+        @keyframes flash {
+            from { opacity: 1; }
+            to { opacity: 0.5; }
+        }
+
+
+        /* Responsive adjustments - NO CHANGE */
+        @media (min-width: 640px) {
+            #game-content-area {
+                max-width: 600px;
+                width: 100%;
+            }
+            /* Private Chat Sidebar on larger screens */
+            #chat-view {
+                flex-direction: row;
+            }
+            #private-chat-sidebar {
+                flex: 0 0 280px; /* Fixed width sidebar */
+                border-right: 1px solid #e5e7eb; /* Light mode border */
+            }
+            .dark #private-chat-sidebar {
+                border-right: 1px solid #374151; /* Dark mode border */
+            }
+            #chat-area {
+                flex-grow: 1;
+            }
+        }
+        @media (max-width: 639px) {
+            #chat-view {
+                flex-direction: column;
+            }
+            #private-chat-sidebar {
+                flex: 0 0 40%;
+                max-height: 40vh; /* Shorter sidebar on mobile */
+                border-bottom: 1px solid #e5e7eb;
+            }
+            .dark #private-chat-sidebar {
+                 border-bottom: 1px solid #374151;
+            }
+        }
+        
+        .user-list-item {
+            cursor: pointer;
+            transition: background-color 0.1s;
+        }
+        .user-list-item:hover {
+            background-color: #e5e7eb; /* Gray 200 */
+        }
+        .dark .user-list-item:hover {
+            background-color: #374151; /* Gray 700 */
+        }
+        .user-list-item.active {
+            background-color: #c7d2fe; /* Indigo 200 */
+        }
+        .dark .user-list-item.active {
+            background-color: #8b5cf6; /* Purple 500 */
+        }
+        
+        /* NEW DROPDOWN STYLES */
+        .dropdown-menu {
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+        }
+        .dropdown-menu.show {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="light bg-gray-100 dark:bg-gray-900 transition-colors duration-300">
+
+    <header class="flex-shrink-0 p-4 bg-white dark:bg-gray-800 shadow-md flex justify-between items-center">
+        <h1 class="text-xl font-bold text-indigo-600 dark:text-purple-400">
+            <span id="header-title"></span>
+        </h1>
+        
+        <div class="relative">
+            <button id="menu-toggle-button" class="p-2 rounded-full bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors duration-300 shadow-sm text-gray-700 dark:text-gray-300">
+                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16m-7 6h7" />
+                </svg>
+            </button>
+            
+            <div id="dropdown-menu" class="dropdown-menu absolute right-0 mt-3 w-48 bg-white dark:bg-gray-700 rounded-lg shadow-2xl border border-gray-200 dark:border-gray-600 z-50 overflow-hidden">
+                
+                <button id="profile-button" class="w-full text-left p-3 text-sm text-indigo-600 dark:text-purple-400 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-150 flex items-center space-x-2 hidden font-semibold">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37a1.724 1.724 0 002.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span>प्रोफाइल</span>
+                </button>
+                
+                <button id="theme-toggle" class="w-full text-left p-3 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-150 flex items-center space-x-2">
+                    <svg id="moon-icon" class="w-5 h-5 text-indigo-600 dark:text-yellow-300 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                    <svg id="sun-icon" class="w-5 h-5 text-yellow-500 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                    <span id="theme-label">थीम बदलें</span>
+                </button>
+                
+                <button id="signout-button" class="w-full text-left p-3 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-gray-600 transition-colors duration-150 flex items-center space-x-2 border-t dark:border-gray-600 hidden">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3v-3m0-4V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                    </svg>
+                    <span>साइन आउट</span>
+                </button>
+            </div>
+        </div>
+        </header>
+
+    <div id="error-banner" class="flex-shrink-0 p-3 bg-red-600 text-white font-medium text-center shadow-lg hidden">
+        ⚠️ एक त्रुटि हुई है। कृपया कंसोल देखें।
+    </div>
+    <div id="status-banner" class="flex-shrink-0 p-3 bg-green-600 text-white font-medium text-center shadow-lg hidden">
+        ✅ सफलता!
+    </div>
+
+
+    <main id="main-content" class="flex-grow flex flex-col">
+        
+        <div id="loading-view" class="flex flex-col items-center justify-center flex-grow">
+            <div class="animate-spin inline-block w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
+            <p class="mt-4 text-gray-500 dark:text-gray-400">ऐप शुरू हो रहा है...</p>
+        </div>
+
+        <div id="auth-view" class="hidden flex flex-col items-center justify-center flex-grow p-6 bg-gray-100 dark:bg-gray-900">
+            <div class="text-center mb-6 w-full max-w-sm">
+                <h2 id="auth-title" class="text-4xl font-extrabold text-indigo-600 dark:text-purple-400 mb-2">चैट में आपका स्वागत है!</h2>
+                <p id="auth-subtitle" class="text-md text-gray-600 dark:text-gray-300">लॉग इन करने के लिए अपना ईमेल और पासवर्ड डालें।</p>
+            </div>
+
+            <div class="w-full max-w-sm bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl border border-gray-300 dark:border-gray-700">
+                
+                <form id="auth-form" class="space-y-4">
+                    <input type="email" id="auth-email-input" placeholder="ईमेल" class="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" required/>
+                    
+                    <div class="relative">
+                        <input type="password" id="auth-password-input" placeholder="पासवर्ड" class="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none pr-10" required/>
+                        <button type="button" id="toggle-password-view" class="absolute inset-y-0 right-0 px-3 flex items-center text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-purple-400 transition-colors">
+                            <svg id="eye-open" class="w-5 h-5 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            <svg id="eye-closed" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.542-7 1.274-4.057 5.064-7 9.542-7 1.258 0 2.443.344 3.52 1.054M17 12a5 5 0 01-5 5" />
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 17l.001-.01M19.782 19.782l-3.355-3.355M17.348 12.348l2.007-2.007M10 10l-2.007-2.007M4.218 4.218l3.355 3.355" />
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <button type="submit" id="auth-submit-button" class="w-full p-3 bg-indigo-600 dark:bg-purple-600 text-white font-bold rounded-lg shadow-xl hover:bg-indigo-700 dark:hover:bg-purple-700 transition-all duration-200">
+                        लॉग इन करें
+                    </button>
+                    
+                </form>
+
+                <p id="auth-status" class="text-sm text-center font-bold mt-3"></p>
+
+                <div class="mt-4 text-center text-sm space-y-2 border-t pt-4 dark:border-gray-700">
+                    <button id="toggle-auth-mode" class="block w-full text-indigo-600 dark:text-purple-400 font-semibold hover:underline">
+                        अकाउंट नहीं है? साइन अप करें
+                    </button>
+                    
+                    <button id="auth-forgot-password-button" class="block w-full text-red-500 font-semibold hover:underline">
+                        पासवर्ड भूल गए?
+                    </button>
+
+                </div>
+            </div>
+            
+            <div class="w-full max-w-sm mt-4">
+                <button id="auth-guest-button" class="w-full p-3 bg-yellow-500 text-gray-900 font-bold rounded-lg shadow-lg hover:bg-yellow-600 transition-all duration-200">
+                    💬 गेस्ट के रूप में पब्लिक चैट में प्रवेश करें
+                </button>
+            </div>
+            
+        </div>
+        
+        <div id="chat-view" class="hidden flex-grow flex"> 
+            
+            <div id="private-chat-sidebar" class="flex-shrink-0 w-full sm:w-72 bg-white dark:bg-gray-800 shadow-xl overflow-y-auto hidden">
+                <div class="p-4 border-b dark:border-gray-700">
+                    <h3 class="text-lg font-bold text-indigo-600 dark:text-purple-400 mb-3">💬 निजी चैट यूज़र</h3>
+                    <input type="text" id="user-search-input" placeholder="यूज़रनेम से खोजें..." class="w-full p-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none"/>
+                </div>
+                
+                <div id="private-user-list" class="p-2 space-y-1">
+                    </div>
+            </div>
+
+            <div id="chat-area" class="flex-grow flex flex-col">
+                <div class="flex-shrink-0 text-center text-xs p-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 overflow-x-auto">
+                    <span class="font-semibold">आपकी ID:</span> <span id="user-id-display" class="font-mono select-all"></span>
+                 </div>
+                 
+                 <div id="chat-mode-buttons" class="flex-shrink-0 flex justify-center p-2 bg-white dark:bg-gray-800 shadow-sm border-b dark:border-gray-700">
+                    <button id="public-chat-button" class="flex-1 p-2 font-semibold text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+                        📢 पब्लिक चैट
+                    </button>
+                    <button id="private-chat-button" class="flex-1 p-2 font-semibold text-sm bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-300 rounded-r-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors hidden">
+                        💬 निजी चैट
+                    </button>
+                </div>
+
+                <div id="chat-container" class="space-y-4">
+                    <div id="chat-loading-indicator" class="text-center text-gray-500 dark:text-gray-400 mt-8">
+                        संदेश लोड हो रहे हैं...
+                    </div>
+                </div>
+                
+                <footer class="flex-shrink-0 p-4 bg-white dark:bg-gray-800 shadow-inner relative">
+                    <p id="chat-status-message" class="text-sm text-center text-red-500 dark:text-red-400 font-medium mb-2 hidden">
+                        यह एक गेस्ट अकाउंट है। मैसेज भेजने के लिए लॉग इन करें।
+                    </p>
+                    
+                    <div id="emoji-picker" class="absolute bottom-full left-0 right-0 mx-4 mb-2 p-3 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-2xl grid grid-cols-8 gap-1 hidden">
+                        </div>
+                    
+                    <form id="message-form" class="flex space-x-2 items-end">
+                        <button type="button" id="emoji-button" class="flex-shrink-0 p-3 bg-gray-200 dark:bg-gray-700 text-xl rounded-xl shadow-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-all duration-200" disabled>
+                            😀
+                        </button>
+                        
+                        <button type="button" id="game-access-icon" class="flex-shrink-0 p-3 bg-yellow-500 text-gray-900 text-xl rounded-xl shadow-md hover:bg-yellow-600 transition-all duration-200 hidden">
+                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v-4m0 0v-4m-7 4h1m-1-4h1m8-4h.01M12 21a9 9 0 100-18 9 9 0 000 18z"></path></svg>
+                        </button>
+
+                        <textarea
+                            id="message-input"
+                            placeholder="संदेश लिखें..."
+                            class="flex-grow p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-xl focus:ring-2 focus:ring-indigo-500 dark:focus:ring-purple-400 outline-none transition-colors duration-200 resize-none h-12 overflow-hidden"
+                            rows="1"
+                            disabled
+                        ></textarea>
+                        <button
+                            type="submit"
+                            id="send-button"
+                            class="flex-shrink-0 p-3 bg-indigo-600 dark:bg-purple-600 text-white font-semibold rounded-xl shadow-md hover:bg-indigo-700 dark:hover:bg-purple-700 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled
+                        >
+                            भेजें
+                        </button>
+                    </form>
+                </footer>
+            </div>
+        </div>
+        
+        <div id="game-lobby-view" class="hidden flex flex-col items-center flex-grow p-4 game-view overflow-y-auto">
+            <div id="game-content-area" class="w-full max-w-2xl flex flex-col items-center">
+                
+                <div class="text-center mb-8 w-full bg-gray-800 p-8 rounded-xl shadow-2xl border-4 border-indigo-500">
+                    <h2 class="text-4xl font-extrabold text-white mb-3">🎮 गेस्ट गेम लॉबी</h2>
+                    <p class="text-gray-300 text-lg font-medium mb-6">चुनौती स्वीकारें और लीडरबोर्ड पर चढ़ें!</p>
+                    
+                    <div id="game-list-section" class="w-full flex flex-col items-center">
+                        <h3 class="text-2xl font-bold mb-4 text-yellow-400 self-start">कोई गेम चुनें</h3>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full mb-8">
+                            
+                            <div data-game="guess_number" class="game-card bg-gray-800 p-6 rounded-xl shadow-2xl border-4 border-yellow-500 transform hover:scale-[1.02]">
+                                <div class="flex items-center space-x-3 mb-2">
+                                    <span class="text-3xl">🔢</span>
+                                    <h4 class="text-xl font-bold text-yellow-300">संख्या का अंदाज़ा लगाओ</h4>
+                                </div>
+                                <p class="text-sm text-gray-300 mb-3">कठिनाई: <span class="text-green-400 font-bold">आसान</span></p>
+                                <p class="text-gray-400">1 से 100 के बीच गुप्त संख्या का अंदाज़ा लगाएँ। आपको हर बार संकेत मिलेगा कि आपका अंदाज़ा बहुत ऊँचा है या बहुत कम।</p>
+                                <button class="w-full mt-4 p-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">अभी खेलें</button>
+                            </div>
+
+                            <div data-game="quick_click" class="game-card bg-gray-800 p-6 rounded-xl shadow-2xl border-4 border-indigo-500 transform hover:scale-[1.02]">
+                                <div class="flex items-center space-x-3 mb-2">
+                                    <span class="text-3xl">⚡</span>
+                                    <h4 class="text-xl font-bold text-indigo-300">तेज़ क्लिक</h4>
+                                </div>
+                                <p class="text-sm text-gray-300 mb-3">कठिनाई: <span class="text-red-400 font-bold">मध्यम</span></p>
+                                <p class="text-gray-400">जब हरा बटन दिखाई दे, तो उस पर जितनी जल्दी हो सके क्लिक करें! आपका रिएक्शन टाइम मापा जाएगा।</p>
+                                <button class="w-full mt-4 p-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">अभी खेलें</button>
+                            </div>
+
+                        </div>
+                        
+                        <div id="leaderboard-section" class="w-full bg-gray-800 p-6 rounded-xl shadow-2xl border-4 border-yellow-500 mt-8 mb-8">
+                            <h3 class="text-2xl font-extrabold text-yellow-400 mb-4 text-center border-b border-gray-700 pb-3">🔥 गेस्ट गेम लीडरबोर्ड (दिखावटी)</h3>
+                            
+                            <div class="flex justify-around text-center mb-4">
+                                <button data-leaderboard="quick_click" class="leaderboard-tab flex-1 p-2 text-sm font-bold rounded-l-lg bg-indigo-600 text-white transition-colors">तेज़ क्लिक</button>
+                                <button data-leaderboard="guess_number" class="leaderboard-tab flex-1 p-2 text-sm font-bold rounded-r-lg bg-gray-700 text-gray-400 hover:bg-gray-600 transition-colors">संख्या का अंदाज़ा</button>
+                            </div>
+                            
+                            <div id="qc-leaderboard-list" class="space-y-2">
+                                </div>
+                            
+                            <div id="gn-leaderboard-list" class="space-y-2 hidden">
+                                </div>
+
+                            <p class="text-xs text-center text-gray-500 mt-4">वास्तविक लीडरबोर्ड सेविंग के लिए फायरबेस लॉग इन आवश्यक है।</p>
+                        </div>
+                        <div class="w-full bg-gray-700 p-6 rounded-xl shadow-inner border-t-4 border-green-500">
+                            <h3 class="text-2xl font-extrabold text-green-400 mb-3 text-center">🔐 लॉग इन के बाद क्या मिलेगा?</h3>
+                            <ul class="space-y-3 text-gray-300">
+                                <li class="flex items-center">
+                                    <span class="text-green-400 mr-2">✓</span> **फुल चैट एक्सेस:** सभी यूज़र्स के साथ लाइव चैट करें।
+                                </li>
+                                <li class="flex items-center">
+                                    <span class="text-green-400 mr-2">✓</span> **प्रोफाइल कस्टमाइज़ेशन:** अपना नाम, बायो और चैट का रंग बदलें।
+                                </li>
+                                <li class="flex items-center">
+                                    <span class="text-green-400 mr-2">✓</span> **स्थायी यूज़र ID:** आपकी पहचान हमेशा सुरक्षित रहेगी (गेस्ट ID रीसेट हो सकती है)।
+                                </li>
+                                <li class="flex items-center">
+                                    <span class="text-green-400 mr-2">✓</span> **कोई गेम प्रतिबंध नहीं:** तुरंत चैट करें, कोई गेम खेलने की आवश्यकता नहीं।
+                                </li>
+                            </ul>
+                            <button id="lobby-to-login-button" class="w-full p-3 bg-yellow-500 text-gray-900 font-bold rounded-lg shadow-lg hover:bg-yellow-600 transition-all duration-200 mt-6">
+                                🔥 फुल एक्सेस के लिए अभी साइन अप / लॉग इन करें
+                            </button>
+                        </div>
+                    </div>
+                </div>
+        </div>
+        
+        <div id="active-game-view" class="hidden flex flex-col items-center justify-center flex-grow p-4 game-view">
+            <div id="game-container" class="w-full max-w-sm bg-gray-800 p-6 rounded-xl shadow-2xl border-4 border-yellow-500">
+                <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+                    <h2 id="game-active-title" class="text-3xl font-extrabold text-yellow-400"></h2>
+                    <button id="back-to-lobby-button" class="p-2 text-sm bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors">
+                        ← गेम लॉबी
+                    </button>
+                </div>
+                
+                <div id="guess-number-ui" class="hidden text-center">
+                    <p id="gn-game-message" class="text-center text-xl font-bold mb-4 text-yellow-300">1 से 100 के बीच संख्या का अंदाज़ा लगाएँ।</p>
+                    <div class="flex items-center space-x-2 mb-4 justify-center">
+                        <input type="number" id="gn-input" placeholder="संख्या" class="w-24 p-3 border border-gray-700 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-center font-bold" min="1" max="100"/>
+                        <button id="gn-submit-button" class="p-3 bg-green-600 text-white font-bold rounded-lg shadow-md hover:bg-green-700 transition-all duration-200">
+                            अंदाज़ा लगाओ
+                        </button>
+                    </div>
+                    <p class="mt-4 text-gray-400 font-semibold text-lg">प्रयास: <span id="gn-attempts" class="text-white text-2xl font-extrabold text-red-400">0</span></p>
+                    <button id="gn-start-game-button" class="w-full p-3 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 transition-all duration-200 mt-6">
+                        नया गेम शुरू करें
+                    </button>
+                </div>
+                
+                <div id="quick-click-ui" class="hidden text-center">
+                    <p id="qc-game-message" class="text-center text-xl font-bold mb-4 text-indigo-300">तैयार रहें!</p>
+                    <div id="qc-target-area" class="h-64 flex items-center justify-center p-4">
+                        <button id="qc-target-button" class="hidden flex items-center justify-center text-lg font-bold text-white"></button>
+                    </div>
+                    <div class="mt-6 flex justify-between items-center text-gray-400 font-semibold text-lg">
+                        <span>औसत समय: <span id="qc-average-time" class="text-white text-2xl font-extrabold text-green-400">--</span> ms</span>
+                        <span>राउंड: <span id="qc-round" class="text-white text-2xl font-extrabold text-red-400">0</span> / 5</span>
+                    </div>
+                    <button id="qc-start-game-button" class="w-full p-3 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 transition-all duration-200 mt-6">
+                        शुरू करें
+                    </button>
+                </div>
+                
+            </div>
+            
+            <button id="game-active-to-login-button" class="mt-6 p-3 px-6 bg-yellow-500 text-gray-900 font-semibold rounded-lg shadow-md hover:bg-yellow-600 transition-all duration-200">
+                ईमेल से लॉग इन / साइन अप करें
+            </button>
+        </div>
+        
+    </main>
+    
+    <div id="reset-modal" class="modal fixed inset-0 flex items-center justify-center hidden p-4">
+        <div class="modal-content w-full max-w-sm bg-white dark:bg-gray-800 p-6 rounded-xl shadow-2xl border border-gray-300 dark:border-gray-700">
+            <h3 class="text-xl font-bold mb-4 text-indigo-600 dark:text-purple-400 border-b pb-2 dark:border-gray-700">पासवर्ड रीसेट करें</h3>
+            
+            <form id="reset-form" class="space-y-4">
+                <p class="text-sm text-gray-600 dark:text-gray-400">अपना रजिस्टर्ड ईमेल डालें। हम आपको एक पासवर्ड रीसेट लिंक भेजेंगे।</p>
+                
+                <input
+                    type="email"
+                    id="reset-email-input"
+                    placeholder="रजिस्टर्ड ईमेल"
+                    class="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                    required
+                />
+                
+                <p id="reset-status" class="text-sm text-center font-medium"></p>
+
+                <div class="flex justify-end space-x-3 pt-2">
+                    <button type="button" id="close-reset-modal" class="p-3 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 font-semibold rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">
+                        बंद करें
+                    </button>
+                    <button type="submit" id="send-reset-button" class="p-3 bg-red-600 dark:bg-red-700 text-white font-semibold rounded-lg shadow-md hover:bg-red-700 dark:hover:bg-red-800 transition-all duration-200">
+                        लिंक भेजें
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <div id="profile-modal" class="modal fixed inset-0 flex items-center justify-center hidden p-4">
+        <div class="modal-content w-full max-w-lg bg-white dark:bg-gray-800 p-8 rounded-xl shadow-2xl border border-indigo-400 dark:border-purple-600">
+            <h3 class="text-2xl font-extrabold mb-6 text-indigo-700 dark:text-purple-400 text-center">प्रोफाइल सेटिंग्स</h3>
+            
+            <form id="profile-form" class="space-y-6">
+                <div>
+                    <label for="username-input" class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">यूजरनेम (आपका चैट नाम)</label>
+                    <input type="text" id="username-input" maxlength="20" placeholder="नया यूजरनेम (अधिकतम 20)" class="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" required />
+                </div>
+
+                <div>
+                    <label for="bio-input" class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">बायो / मेरे बारे में (अधिकतम 100 वर्ण)</label>
+                    <textarea id="bio-input" maxlength="100" placeholder="अपने बारे में कुछ लिखें..." rows="3" class="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none shadow-inner"></textarea>
+                </div>
+
+                <div class="flex items-center space-x-4 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
+                    <label for="color-input" class="text-sm font-bold text-gray-700 dark:text-gray-300 flex-shrink-0">प्रोफाइल रंग चुनें (नाम का रंग)</label>
+                    <input type="color" id="color-input" value="#3b82f6" class="w-12 h-10 p-1 border-gray-300 rounded-full cursor-pointer dark:bg-gray-700 shadow-md">
+                    <div id="color-preview" class="w-8 h-8 rounded-full shadow-xl border-2 border-white"></div>
+                </div>
+                
+                <div>
+                    <label for="status-input" class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">यूज़र स्टेटस</label>
+                    <select id="status-input" class="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner">
+                        <option value="online">🟢 ऑनलाइन (Online)</option>
+                        <option value="away">🟡 दूर (Away)</option>
+                        <option value="busy">🔴 व्यस्त (Busy)</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">चैट बबल स्टाइल</label>
+                    <div class="flex space-x-4">
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="bubble-style" value="default" id="bubble-style-default" class="form-radio text-indigo-600" checked>
+                            <span>डिफ़ॉल्ट (Rounded)</span>
+                        </label>
+                        <label class="flex items-center space-x-2 cursor-pointer">
+                            <input type="radio" name="bubble-style" value="sharp" id="bubble-style-sharp" class="form-radio text-indigo-600">
+                            <span>तेज़ कोने (Sharp)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="timezone-input" class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">टाइमज़ोन (उदाहरण: Asia/Kolkata)</label>
+                    <input type="text" id="timezone-input" placeholder="जैसे: America/New_York" class="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner" value="Asia/Kolkata" />
+                </div>
+
+                <div>
+                    <label for="language-input" class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">पसंदीदा चैट भाषा (Display Language)</label>
+                    <select id="language-input" class="w-full p-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none shadow-inner">
+                        <option value="hi-IN">हिन्दी (hi-IN)</option>
+                        <option value="en-US">English (en-US)</option>
+                        <option value="es-ES">Español (es-ES)</option>
+                    </select>
+                </div>
+
+                <p id="profile-status" class="text-sm text-center font-bold"></p>
+                
+                <div class="pt-4 border-t dark:border-gray-700 flex justify-between items-center">
+                     <button type="button" id="copy-user-id-button" class="p-2 px-4 bg-yellow-500 text-gray-900 font-semibold rounded-lg shadow-md hover:bg-yellow-600 transition-colors">
+                        📋 अपनी ID कॉपी करें
+                     </button>
+                     <p id="copy-status" class="text-sm"></p>
+                </div>
+
+                <div class="flex justify-end space-x-3 pt-4 border-t dark:border-gray-700">
+                    <button type="button" id="close-profile-modal" class="p-3 px-6 text-gray-700 dark:text-gray-300 bg-gray-200 dark:bg-gray-700 font-semibold rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors shadow-lg">
+                        बंद करें
+                    </button>
+                    <button type="submit" id="save-profile-button" class="p-3 px-6 bg-indigo-600 dark:bg-purple-600 text-white font-extrabold rounded-lg shadow-xl hover:bg-indigo-700 dark:hover:bg-purple-700 transition-all duration-200">
+                        प्रोफाइल सेव करें
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+
+    <script type="module">
+        // Using stable SDK version 11.6.1
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInWithCustomToken, 
+            onAuthStateChanged,
+            createUserWithEmailAndPassword,
+            signInWithEmailAndPassword,
+            signOut,
+            sendPasswordResetEmail,
+            signInAnonymously 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            query, 
+            orderBy, 
+            onSnapshot, 
+            addDoc, 
+            serverTimestamp,
+            limit,
+            setLogLevel,
+            doc,
+            getDoc,
+            setDoc,
+            where,
+            runTransaction,
+            getDocs
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // --- CUSTOM FIREBASE CONFIG HARDCODED AS REQUESTED ---
+        const CUSTOM_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyCjszQjV6FRNtbO3BFk24yu1F4KAWZ7FIY",
+            authDomain: "datingapp-9e5ed.firebaseapp.com",
+            projectId: "datingapp-9e5ed",
+            storageBucket: "datingapp-9e5ed.firebasestorage.app",
+            messagingSenderId: "1011089130554",
+            appId: "1:1011089130554:web:50a4d1952ccee7f16ae103",
+            measurementId: "G-VWJDCMYGDE"
+        };
+        // --------------------------------------------------------
+
+        // --- Global Environment Variables ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'datingapp-9e5ed'; 
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        const firebaseConfig = CUSTOM_FIREBASE_CONFIG;
+
+        let app, db, auth;
+        let currentUserId = null;
+        let isGuest = false;
+        const usersMap = {}; 
+        let isSignupMode = false;
+        let isAuthReady = false; 
+        
+        // --- NEW CHAT STATE ---
+        let isPublicChat = true; 
+        let currentChatTargetId = null; 
+        let privateChatId = null; 
+        let privateChatUnsubscribe = null; 
+
+        // --- DOM Elements ---
+        const headerTitle = document.getElementById('header-title');
+        const chatContainer = document.getElementById('chat-container');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const userIdDisplay = document.getElementById('user-id-display');
+        const errorBanner = document.getElementById('error-banner'); 
+        const statusBanner = document.getElementById('status-banner'); 
+        
+        const body = document.body;
+        
+        // View Elements
+        const loadingView = document.getElementById('loading-view');
+        const authView = document.getElementById('auth-view'); 
+        const chatView = document.getElementById('chat-view');
+        const gameLobbyView = document.getElementById('game-lobby-view'); 
+        const activeGameView = document.getElementById('active-game-view');
+        const chatLoadingIndicator = document.getElementById('chat-loading-indicator');
+        const chatStatusMessage = document.getElementById('chat-status-message');
+        
+        // PRIVATE CHAT ELEMENTS
+        const publicChatButton = document.getElementById('public-chat-button');
+        const privateChatButton = document.getElementById('private-chat-button');
+        const privateChatSidebar = document.getElementById('private-chat-sidebar');
+        const privateUserList = document.getElementById('private-user-list');
+        const userSearchInput = document.getElementById('user-search-input');
+        const chatModeButtons = document.getElementById('chat-mode-buttons'); 
+
+        // Auth Form Elements 
+        const authTitle = document.getElementById('auth-title');
+        const authSubtitle = document.getElementById('auth-subtitle');
+        const authForm = document.getElementById('auth-form');
+        const authEmailInput = document.getElementById('auth-email-input');
+        const authPasswordInput = document.getElementById('auth-password-input');
+        const authSubmitButton = document.getElementById('auth-submit-button');
+        const toggleAuthModeButton = document.getElementById('toggle-auth-mode');
+        const authForgotPasswordButton = document.getElementById('auth-forgot-password-button');
+        const authGuestButton = document.getElementById('auth-guest-button');
+        const authStatus = document.getElementById('auth-status');
+        const togglePasswordView = document.getElementById('toggle-password-view');
+        const eyeOpenIcon = document.getElementById('eye-open');
+        const eyeClosedIcon = document.getElementById('eye-closed');
+
+        // Modals
+        const resetModal = document.getElementById('reset-modal');
+        const closeResetModalButton = document.getElementById('close-reset-modal');
+        const resetForm = document.getElementById('reset-form');
+        const resetEmailInput = document.getElementById('reset-email-input');
+        const sendResetButton = document.getElementById('send-reset-button');
+        const resetStatus = document.getElementById('reset-status');
+        const profileModal = document.getElementById('profile-modal'); 
+        const closeProfileModalButton = document.getElementById('close-profile-modal'); 
+        const profileForm = document.getElementById('profile-form'); 
+        const usernameInput = document.getElementById('username-input'); 
+        const bioInput = document.getElementById('bio-input'); 
+        const colorInput = document.getElementById('color-input'); 
+        const colorPreview = document.getElementById('color-preview'); 
+        const saveProfileButton = document.getElementById('save-profile-button'); 
+        const profileStatus = document.getElementById('profile-status'); 
+        
+        // 🟢 PROFILE FIELDS
+        const statusInput = document.getElementById('status-input'); 
+        const bubbleStyleDefault = document.getElementById('bubble-style-default');
+        const bubbleStyleSharp = document.getElementById('bubble-style-sharp');
+        const copyUserIdButton = document.getElementById('copy-user-id-button');
+        const copyStatus = document.getElementById('copy-status');
+        // 🆕 FEATURE 1: New Profile Fields
+        const timezoneInput = document.getElementById('timezone-input');
+        const languageInput = document.getElementById('language-input');
+        
+        // Game Lobby Elements
+        const gameCardElements = document.querySelectorAll('.game-card');
+        const lobbyToLoginButton = document.getElementById('lobby-to-login-button');
+        
+        // 🎮 Game Access Icon
+        const gameAccessIcon = document.getElementById('game-access-icon');
+        
+        // 🆕 FEATURE 4: Leaderboard Elements
+        const leaderboardTabs = document.querySelectorAll('.leaderboard-tab');
+        const qcLeaderboardList = document.getElementById('qc-leaderboard-list');
+        const gnLeaderboardList = document.getElementById('gn-leaderboard-list');
+
+
+        // Active Game Elements
+        const gameActiveTitle = document.getElementById('game-active-title');
+        const backToLobbyButton = document.getElementById('back-to-lobby-button');
+        const gameActiveToLoginButton = document.getElementById('game-active-to-login-button');
+        
+        // --- NEW GAME UI ELEMENTS ---
+        // Guess The Number
+        const guessNumberUI = document.getElementById('guess-number-ui');
+        const gnGameMessage = document.getElementById('gn-game-message');
+        const gnInput = document.getElementById('gn-input');
+        const gnSubmitButton = document.getElementById('gn-submit-button');
+        const gnAttempts = document.getElementById('gn-attempts');
+        const gnStartGameButton = document.getElementById('gn-start-game-button');
+        
+        // Quick Click
+        const quickClickUI = document.getElementById('quick-click-ui');
+        const qcGameMessage = document.getElementById('qc-game-message');
+        const qcTargetArea = document.getElementById('qc-target-area');
+        const qcTargetButton = document.getElementById('qc-target-button');
+        const qcAverageTime = document.getElementById('qc-average-time');
+        const qcRound = document.getElementById('qc-round');
+        const qcStartGameButton = document.getElementById('qc-start-game-button');
+        // ---------------------------
+
+        // Emoji Elements 
+        const emojiButton = document.getElementById('emoji-button');
+        const emojiPicker = document.getElementById('emoji-picker');
+        const EMOJIS = ['😀', '😁', '😂', '🤣', '😊', '😇', '🙂', '😉', '😌', '😘', '🥰', '😍', '🤩', '🤔', '🤨', '😐', '😑', '😒', '🙄', '😫', '😩', '😢', '😭', '🤯', '🥳', '😎', '🤓', '🥳', '💖', '🔥', '👍', '👎', '🙏', '🙌', '💯', '✨', '🎉', '🎈', '🎁', '🚀', '🍎', '🍌', '🍕', '☕', '🍺', '🌮', '🍔', '🍟', '🍣', '🍩', '🏠', '🚗', '💡', '⏰', '📱', '💻', '⭐', '🌈', '🌍', '❤️'];
+
+        // --- Game State Variables ---
+        let currentGame = null; 
+        
+        // --- Dropdown Elements ---
+        const menuToggleButton = document.getElementById('menu-toggle-button');
+        const dropdownMenu = document.getElementById('dropdown-menu');
+        const profileButton = document.getElementById('profile-button'); 
+        const themeToggle = document.getElementById('theme-toggle'); 
+        const signoutButton = document.getElementById('signout-button'); 
+        const themeLabel = document.getElementById('theme-label');
+
+
+        // --- Utility Functions ---
+        
+        function getChatColor(userId) {
+            let hash = 0;
+            for (let i = 0; i < userId.length; i++) {
+                hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const h = hash % 360; 
+            const s = (Math.abs(hash) % 30 + 60); 
+            const l = (Math.abs(hash >> 8) % 30 + 40); 
+            
+            return `hsl(${h}, ${s}%, ${l}%)`;
+        }
+        
+        // 🆕 FEATURE 1: Format timestamp based on user's selected language and timezone
+        function formatTimestamp(timestamp) {
+            if (!timestamp || !timestamp.toDate) return '...';
+            const date = timestamp.toDate();
+            
+            const userProfile = usersMap[currentUserId] || {};
+            const lang = userProfile.language || 'hi-IN';
+            const timezone = userProfile.timezone || 'Asia/Kolkata';
+            
+            try {
+                return date.toLocaleTimeString(lang, { 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    timeZone: timezone 
+                });
+            } catch (e) {
+                 // Fallback to simple locale if timezone/language is invalid
+                return date.toLocaleTimeString('hi-IN', { hour: '2-digit', minute: '2-digit' });
+            }
+        }
+
+        function showError(message) {
+            console.error("APP ERROR:", message);
+            errorBanner.textContent = `⚠️ त्रुटि: ${message.split(':').pop().trim() || "अज्ञात त्रुटि"}`;
+            errorBanner.classList.remove('hidden');
+            statusBanner.classList.add('hidden'); 
+        }
+        
+        function showStatus(message, duration = 3000) {
+            errorBanner.classList.add('hidden'); 
+            statusBanner.textContent = message;
+            statusBanner.classList.remove('hidden');
+            setTimeout(() => {
+                statusBanner.classList.add('hidden');
+            }, duration);
+        }
+
+        function hideError() {
+            errorBanner.classList.add('hidden');
+        }
+
+        function scrollToBottom() {
+            const lastMessage = chatContainer.lastElementChild;
+            if (lastMessage) {
+                lastMessage.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'end' 
+                });
+            } else {
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        }
+        
+        // --- Theme Management (updated) ---
+        function applyTheme(theme) {
+            const moonIcon = document.getElementById('moon-icon');
+            const sunIcon = document.getElementById('sun-icon');
+            body.classList.remove('light', 'dark');
+            body.classList.add(theme);
+            if (theme === 'dark') {
+                moonIcon.classList.add('hidden');
+                sunIcon.classList.remove('hidden');
+                themeLabel.textContent = 'लाइट मोड पर स्विच करें';
+                document.documentElement.classList.add('dark');
+            } else {
+                moonIcon.classList.remove('hidden');
+                sunIcon.classList.add('hidden');
+                themeLabel.textContent = 'डार्क मोड पर स्विच करें';
+                document.documentElement.classList.remove('dark');
+            }
+            localStorage.setItem('chat-theme', theme);
+        }
+
+        function toggleTheme() {
+            const currentTheme = body.classList.contains('dark') ? 'dark' : 'light';
+            const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+            applyTheme(newTheme);
+            closeDropdown(); // Dropdown बंद करें
+        }
+
+        const savedTheme = localStorage.getItem('chat-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        applyTheme(savedTheme);
+        themeToggle.addEventListener('click', toggleTheme);
+        
+        // --- Dropdown Logic (NEW) ---
+        
+        function toggleDropdown() {
+             dropdownMenu.classList.toggle('show');
+        }
+        
+        function closeDropdown() {
+             dropdownMenu.classList.remove('show');
+        }
+
+        menuToggleButton.addEventListener('click', toggleDropdown);
+        
+        document.addEventListener('click', (e) => {
+             if (!menuToggleButton.contains(e.target) && !dropdownMenu.contains(e.target)) {
+                 closeDropdown();
+             }
+        });
+
+
+        
+        // --- View Management (updated for simplified guest flow and new menu logic) ---
+        function showView(viewId) {
+            // FIX: सुनिश्चित करें कि सभी मुख्य व्यू पहले छुपाए गए हैं
+            loadingView.classList.add('hidden');
+            authView.classList.add('hidden');
+            chatView.classList.add('hidden');
+            gameLobbyView.classList.add('hidden'); 
+            activeGameView.classList.add('hidden');
+
+            // NEW: Menu items visibility logic
+            signoutButton.classList.add('hidden');
+            profileButton.classList.add('hidden'); 
+            
+            closeDropdown();
+
+            // Reset Game Logic (NEW)
+            if (currentGame === 'quick_click') qcResetGame(); 
+            if (currentGame === 'guess_number') gnResetGame();
+
+            
+            if (privateChatUnsubscribe) {
+                 privateChatUnsubscribe();
+                 privateChatUnsubscribe = null;
+            }
+            currentChatTargetId = null;
+            privateChatId = null;
+
+
+            if (viewId === 'auth') {
+                authView.classList.remove('hidden');
+                headerTitle.textContent = 'चैट होम';
+                isSignupMode = false; 
+                updateAuthViewMode();
+            } else if (viewId === 'game-lobby') {
+                gameLobbyView.classList.remove('hidden');
+                headerTitle.textContent = '🎮 गेम लॉबी';
+                signoutButton.classList.remove('hidden'); 
+                // 🆕 सुनिश्चित करें कि लीडरबोर्ड रेंडर हो
+                renderLeaderboard(document.querySelector('.leaderboard-tab.bg-indigo-600') ? document.querySelector('.leaderboard-tab.bg-indigo-600').dataset.leaderboard : 'quick_click'); 
+
+            } else if (viewId === 'active-game') {
+                activeGameView.classList.remove('hidden');
+                headerTitle.textContent = `गेम: ${gameActiveTitle.textContent}`;
+                signoutButton.classList.remove('hidden'); 
+            } else if (viewId === 'chat') {
+                chatView.classList.remove('hidden');
+                signoutButton.classList.remove('hidden');
+                
+                const canPost = !isGuest; 
+                messageInput.disabled = !canPost;
+                sendButton.disabled = !canPost;
+                emojiButton.disabled = !canPost; 
+                chatStatusMessage.classList.toggle('hidden', canPost);
+                
+                // 🎮 NEW: गेस्ट के लिए गेम एक्सेस आइकॉन दिखाएँ, लॉग इन यूज़र के लिए छुपाएँ
+                gameAccessIcon.classList.toggle('hidden', !isGuest);
+                
+                if (!isGuest) {
+                    profileButton.classList.remove('hidden'); // Show profile button in menu
+                    loadAllUsers(); 
+                    isPublicChat = true; 
+                    updateChatModeUI();
+                    setupMessageListener(); 
+                } else {
+                    // FIX: गेस्ट के लिए निजी चैट बटन और साइडबार छुपाएँ (UI अपडेट)
+                    privateChatButton.classList.add('hidden');
+                    privateChatSidebar.classList.add('hidden');
+                    chatModeButtons.classList.add('hidden'); 
+                    isPublicChat = true;
+                    updateChatModeUI(); 
+                    setupMessageListener();
+                }
+
+            } else {
+                loadingView.classList.remove('hidden');
+                headerTitle.textContent = 'लोड हो रहा है...';
+            }
+        }
+        
+        // --- CHAT NAVIGATION LOGIC (updated for simplification) ---
+
+        publicChatButton.addEventListener('click', () => {
+             if (isPublicChat) return; 
+             isPublicChat = true;
+             updateChatModeUI();
+             setupMessageListener(); 
+        });
+        
+        privateChatButton.addEventListener('click', () => {
+            if (isGuest) {
+                 showError("निजी चैट सुविधा केवल लॉग इन यूज़र्स के लिए उपलब्ध है।");
+                 return;
+            }
+            if (!isPublicChat) return; 
+            
+            isPublicChat = false;
+            updateChatModeUI();
+            
+            chatContainer.innerHTML = `<div class="text-center text-gray-500 dark:text-gray-400 mt-8">
+                साइडबार से किसी यूज़र का नाम चुनकर निजी चैट शुरू करें।
+            </div>`;
+             headerTitle.textContent = 'निजी चैट';
+             
+        });
+        
+        function updateChatModeUI() {
+            if (isPublicChat) {
+                // Public Mode
+                privateChatSidebar.classList.add('hidden');
+                publicChatButton.classList.add('bg-indigo-600', 'text-white', 'pointer-events-none');
+                publicChatButton.classList.remove('bg-gray-200', 'text-gray-800', 'dark:bg-gray-700', 'dark:text-gray-300', 'pointer-events-auto', 'rounded-l-lg');
+                privateChatButton.classList.remove('bg-indigo-600', 'text-white', 'pointer-events-none');
+                privateChatButton.classList.add('bg-gray-200', 'text-gray-800', 'dark:bg-gray-700', 'dark:text-gray-300', 'pointer-events-auto', 'rounded-r-lg');
+                headerTitle.textContent = 'पब्लिक चैट रूम';
+            } else {
+                // Private Mode
+                privateChatSidebar.classList.remove('hidden');
+                privateChatButton.classList.add('bg-indigo-600', 'text-white', 'pointer-events-none');
+                privateChatButton.classList.remove('bg-gray-200', 'text-gray-800', 'dark:bg-gray-700', 'dark:text-gray-300', 'pointer-events-auto');
+                publicChatButton.classList.remove('bg-indigo-600', 'text-white', 'pointer-events-none');
+                publicChatButton.classList.add('bg-gray-200', 'text-gray-800', 'dark:bg-gray-700', 'dark:text-gray-300', 'pointer-events-auto', 'rounded-l-lg');
+            }
+            
+            // FIX: गेस्ट के लिए निजी चैट बटन को स्थायी रूप से छुपाएँ और बटन रो को भी छुपाएँ
+            if (isGuest) {
+                 privateChatButton.classList.add('hidden');
+                 privateChatSidebar.classList.add('hidden');
+                 chatModeButtons.classList.add('hidden'); 
+                 // पब्लिक चैट बटन को फुल विड्थ करें (पहले ही CSS में rounded-lg कर दिया है)
+                 publicChatButton.classList.add('rounded-lg'); 
+                 publicChatButton.classList.remove('rounded-l-lg');
+            } else {
+                 privateChatButton.classList.remove('hidden');
+                 chatModeButtons.classList.remove('hidden');
+                 // पब्लिक चैट बटन को केवल लेफ्ट-साइडेड राउंडिंग दें
+                 publicChatButton.classList.remove('rounded-lg');
+                 publicChatButton.classList.add('rounded-l-lg'); 
+            }
+        }
+        
+        // 🎮 NEW: Game Access Icon Handler
+        gameAccessIcon.addEventListener('click', () => {
+             // गेस्ट को गेम लॉबी/लिस्ट पर ले जाता है
+             showView('game-lobby');
+        });
+        
+        // --- Private Chat User List & Search (unchanged) ---
+        
+        async function loadAllUsers() {
+            if (isGuest) return;
+            try {
+                const userProfilesRef = collection(db, `artifacts/${appId}/users`);
+                const q = query(userProfilesRef, where("userConfig.profile.username", "!=", null)); 
+                const querySnapshot = await getDocs(q);
+                
+                const allUsers = {};
+                querySnapshot.forEach(docSnap => {
+                    const uid = docSnap.id;
+                    if (uid === currentUserId) return; 
+                    
+                    const profile = docSnap.data().userConfig.profile;
+                    if (profile) {
+                        usersMap[uid] = {
+                            username: profile.username,
+                            color: profile.color,
+                            bio: profile.bio || '',
+                            status: profile.status || 'online', 
+                            bubbleStyle: profile.bubbleStyle || 'default' 
+                        };
+                        allUsers[uid] = usersMap[uid];
+                    }
+                });
+                renderUserList(allUsers);
+
+            } catch(e) {
+                console.error("Error loading all users:", e);
+                showStatus("यूज़र्स को लोड करने में त्रुटि।", 3000);
+            }
+        }
+        
+        function renderUserList(filteredUsers) {
+            privateUserList.innerHTML = '';
+            
+            const usersArray = Object.entries(filteredUsers).map(([uid, profile]) => ({ uid, ...profile }));
+            
+            usersArray.sort((a, b) => a.username.localeCompare(b.username));
+
+            if (usersArray.length === 0) {
+                 privateUserList.innerHTML = `<p class="p-2 text-sm text-gray-500 dark:text-gray-400 text-center">कोई यूज़र नहीं मिला।</p>`;
+                 return;
+            }
+
+            usersArray.forEach(user => {
+                const item = document.createElement('div');
+                item.className = `user-list-item p-3 flex flex-col rounded-lg ${user.uid === currentChatTargetId ? 'active' : ''}`;
+                item.dataset.uid = user.uid;
+                
+                // 🟢 Status indicator
+                let statusColor = 'text-green-500';
+                if (user.status === 'away') statusColor = 'text-yellow-500';
+                if (user.status === 'busy') statusColor = 'text-red-500';
+                
+                item.innerHTML = `
+                    <div class="flex items-center space-x-2">
+                        <span class="${statusColor} text-lg">•</span>
+                        <p class="text-md font-bold truncate" style="color: ${user.color};">${user.username}</p>
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 truncate">${user.bio || 'चैट करने के लिए क्लिक करें'}</p>
+                `;
+                item.addEventListener('click', () => startPrivateChat(user.uid));
+                privateUserList.appendChild(item);
+            });
+        }
+        
+        userSearchInput.addEventListener('input', () => {
+            const query = userSearchInput.value.toLowerCase().trim();
+            const filteredUsers = {};
+            
+            for (const uid in usersMap) {
+                if (uid === currentUserId) continue; 
+                const user = usersMap[uid];
+                if (user.username.toLowerCase().includes(query) || (user.bio && user.bio.toLowerCase().includes(query))) {
+                    filteredUsers[uid] = user;
+                }
+            }
+            renderUserList(filteredUsers);
+        });
+
+        // --- PRIVATE CHAT LOGIC (unchanged) ---
+
+        async function startPrivateChat(targetUid) {
+            if (isGuest) {
+                showError("निजी चैट सुविधा केवल लॉग इन यूज़र्स के लिए उपलब्ध है।");
+                return;
+            }
+            if (targetUid === currentUserId) return;
+            
+            if (privateChatUnsubscribe) {
+                 privateChatUnsubscribe();
+            }
+
+            isPublicChat = false; 
+            currentChatTargetId = targetUid;
+            updateChatModeUI();
+            
+            document.querySelectorAll('.user-list-item').forEach(el => {
+                 el.classList.remove('active');
+                 if (el.dataset.uid === targetUid) {
+                     el.classList.add('active');
+                 }
+            });
+
+            const chatId = await findOrCreatePrivateChat(currentUserId, targetUid);
+            privateChatId = chatId;
+            
+            const targetUsername = usersMap[targetUid].username || 'अज्ञात यूज़र';
+            headerTitle.textContent = `निजी चैट: ${targetUsername}`;
+            
+            setupPrivateChatListener(chatId);
+        }
+        
+        async function findOrCreatePrivateChat(user1Id, user2Id) {
+            const members = [user1Id, user2Id].sort(); 
+            const chatId = members.join('_'); 
+            const chatDocRef = doc(db, `artifacts/${appId}/private_chats/${chatId}`);
+
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const chatDoc = await transaction.get(chatDocRef);
+                    
+                    if (!chatDoc.exists()) {
+                        const newChatData = {
+                            members: members,
+                            lastMessageAt: serverTimestamp(),
+                            createdAt: serverTimestamp(),
+                            [user1Id]: { username: usersMap[user1Id].username, color: usersMap[user1Id].color },
+                            [user2Id]: { username: usersMap[user2Id].username, color: usersMap[user2Id].color }
+                        };
+                        transaction.set(chatDocRef, newChatData);
+                    }
+                });
+                return chatId;
+            } catch (e) {
+                showError(`प्राइवेट चैट बनाने में त्रुटि: ${e.message}`);
+                throw e;
+            }
+        }
+        
+        function setupPrivateChatListener(chatId) {
+             if (!db || !chatId) return;
+
+             const messagesCollectionRef = collection(db, `artifacts/${appId}/private_chats/${chatId}/messages`);
+            
+             const messagesQuery = query(
+                 messagesCollectionRef, 
+                 orderBy('createdAt', 'desc'),
+                 limit(50) 
+             );
+             
+             chatContainer.innerHTML = '';
+             chatLoadingIndicator.classList.remove('hidden');
+
+             privateChatUnsubscribe = onSnapshot(messagesQuery, async (snapshot) => {
+                 chatLoadingIndicator.classList.add('hidden');
+                 
+                 const shouldScroll = chatContainer.scrollHeight - chatContainer.scrollTop <= chatContainer.clientHeight + 20; 
+                 const fragment = document.createDocumentFragment();
+                 const fetchedMessages = [];
+
+                 snapshot.forEach(doc => {
+                     const data = doc.data();
+                     if (data.text && data.userId && data.createdAt) {
+                         fetchedMessages.push({ id: doc.id, ...data });
+                     }
+                 });
+
+                 fetchedMessages.reverse().forEach(msg => {
+                     fragment.appendChild(renderMessage(msg));
+                 });
+
+                 chatContainer.innerHTML = '';
+                 chatContainer.appendChild(fragment);
+
+                 if (shouldScroll || fetchedMessages.length === snapshot.docs.length) { 
+                     scrollToBottom();
+                 }
+                 
+                 // 🆕 FEATURE 2: Add DM click listener (for consistency, though private chat doesn't need it)
+                 if (!isGuest && isPublicChat) { // Only run this logic if we are NOT in private chat
+                     chatContainer.querySelectorAll('.user-dm-target').forEach(el => {
+                         el.addEventListener('click', (e) => {
+                             e.stopPropagation();
+                             const targetUid = e.target.dataset.uid;
+                             if (targetUid) {
+                                 startPrivateChat(targetUid);
+                             }
+                         });
+                     });
+                 }
+
+
+             }, (err) => {
+                 chatLoadingIndicator.classList.add('hidden');
+                 if (err.code !== 'permission-denied') { 
+                     showError(`निजी संदेश लोड करने में त्रुटि: ${err.message}`);
+                 }
+             });
+        }
+        
+        // --- Public Chat Message Listener (updated for DM click listener) ---
+
+        let publicChatUnsubscribe = null;
+
+        function setupMessageListener() {
+            if (publicChatUnsubscribe) {
+                 publicChatUnsubscribe();
+                 publicChatUnsubscribe = null;
+            }
+            if (!db || !isPublicChat || !isAuthReady) return;
+
+            const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/messages`);
+            
+            const messagesQuery = query(
+                messagesCollectionRef, 
+                orderBy('createdAt', 'desc'),
+                limit(50) 
+            );
+            
+            chatContainer.innerHTML = '';
+            chatLoadingIndicator.classList.remove('hidden');
+
+            publicChatUnsubscribe = onSnapshot(messagesQuery, async (snapshot) => {
+                chatLoadingIndicator.classList.add('hidden');
+                
+                const shouldScroll = chatContainer.scrollHeight - chatContainer.scrollTop <= chatContainer.clientHeight + 20; 
+                
+                const fragment = document.createDocumentFragment();
+                const fetchedMessages = [];
+                const neededUserIds = new Set();
+                
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    if (data.text && data.userId && data.createdAt) {
+                        fetchedMessages.push({ id: doc.id, ...data });
+                        if (!usersMap[data.userId] && data.userId !== currentUserId) {
+                            neededUserIds.add(data.userId);
+                        }
+                    }
+                });
+                
+                if (neededUserIds.size > 0) {
+                     await Promise.all(Array.from(neededUserIds).map(uid => 
+                        loadUserProfile(uid, null, uid.startsWith('Guest_')) 
+                    ));
+                }
+
+                fetchedMessages.reverse().forEach(msg => {
+                    fragment.appendChild(renderMessage(msg));
+                });
+
+                chatContainer.innerHTML = '';
+                chatContainer.appendChild(fragment);
+
+                if (shouldScroll || fetchedMessages.length === snapshot.docs.length) { 
+                    scrollToBottom();
+                }
+                
+                // 🆕 FEATURE 2: Add DM click listener
+                if (!isGuest) {
+                    chatContainer.querySelectorAll('.user-dm-target').forEach(el => {
+                        el.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            const targetUid = e.target.dataset.uid;
+                            if (targetUid && targetUid !== currentUserId) {
+                                startPrivateChat(targetUid);
+                            } else if (targetUid === currentUserId) {
+                                showStatus("आप स्वयं को DM नहीं कर सकते।", 1500);
+                            }
+                        });
+                    });
+                }
+
+
+            }, (err) => {
+                chatLoadingIndicator.classList.add('hidden');
+                if (err.code !== 'permission-denied') { 
+                    showError(`संदेश लोड करने में त्रुटि: ${err.message}`);
+                }
+            });
+        }
+        
+        // --- Message Send Logic (unchanged) ---
+
+        messageForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            if (!emojiPicker.classList.contains('hidden')) {
+                emojiPicker.classList.add('hidden');
+            }
+            
+            if (isGuest) {
+                showError("गेस्ट यूज़र मैसेज नहीं भेज सकते। फुल चैट एक्सेस के लिए लॉग इन करें!");
+                messageInput.value = '';
+                return;
+            }
+
+            const trimmedMessage = messageInput.value.trim();
+            if (!trimmedMessage || !db || !currentUserId) return;
+
+            messageInput.disabled = true;
+            sendButton.disabled = true;
+
+            let collectionRef;
+
+            if (isPublicChat) {
+                collectionRef = collection(db, `artifacts/${appId}/public/data/messages`);
+            } else if (privateChatId) {
+                collectionRef = collection(db, `artifacts/${appId}/private_chats/${privateChatId}/messages`);
+            } else {
+                 showError("निजी चैट शुरू करने के लिए कृपया एक यूज़र चुनें।");
+                 messageInput.disabled = false;
+                 sendButton.disabled = false;
+                 return;
+            }
+
+            try {
+                await addDoc(collectionRef, {
+                    text: trimmedMessage,
+                    createdAt: serverTimestamp(),
+                    userId: currentUserId,
+                });
+                
+                if (!isPublicChat && privateChatId) {
+                     const chatDocRef = doc(db, `artifacts/${appId}/private_chats/${privateChatId}`);
+                     await setDoc(chatDocRef, { lastMessageAt: serverTimestamp() }, { merge: true });
+                }
+
+                messageInput.value = ''; 
+                messageInput.style.height = '48px'; 
+                hideError();
+                scrollToBottom(); 
+
+            } catch (err) {
+                showError(`संदेश भेजने में त्रुटि: ${err.message}`);
+            } finally {
+                messageInput.disabled = false;
+                sendButton.disabled = false;
+                messageInput.focus();
+            }
+        });
+        
+        // --- EMOJI RENDERING FUNCTION (unchanged) ---
+
+        function renderEmojis() {
+            EMOJIS.forEach(emoji => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.textContent = emoji;
+                button.className = 'text-xl p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors';
+                button.addEventListener('click', () => {
+                    messageInput.value += emoji;
+                    messageInput.focus();
+                    messageInput.style.height = 'auto';
+                    messageInput.style.height = (messageInput.scrollHeight) + 'px';
+                    scrollToBottom();
+                });
+                emojiPicker.appendChild(button);
+            });
+            
+            emojiButton.addEventListener('click', () => {
+                 emojiPicker.classList.toggle('hidden');
+            });
+            
+            document.addEventListener('click', (e) => {
+                 if (!emojiPicker.contains(e.target) && e.target !== emojiButton && !emojiButton.contains(e.target)) {
+                     emojiPicker.classList.add('hidden');
+                 }
+            });
+            
+            messageInput.addEventListener('input', () => {
+                 messageInput.style.height = 'auto';
+                 messageInput.style.height = (messageInput.scrollHeight) + 'px';
+                 scrollToBottom(); 
+            });
+            
+            messageInput.addEventListener('keypress', (e) => {
+                 if (e.key === 'Enter' && !e.shiftKey) {
+                     e.preventDefault();
+                     messageForm.dispatchEvent(new Event('submit'));
+                 }
+            });
+        }
+        
+        // --- Firebase Initialization and Authentication Listener (updated for guest flow) ---
+
+        window.onload = async function() {
+            try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                setLogLevel('debug'); 
+                
+                renderEmojis();
+                
+                onAuthStateChanged(auth, async (user) => {
+                    isAuthReady = true; 
+                    currentUserId = null;
+                    isGuest = false;
+                    
+                    if (user) {
+                        currentUserId = user.uid;
+                        isGuest = user.isAnonymous;
+
+                        await loadUserProfile(user.uid, user.email, user.isAnonymous);
+                        
+                        const currentProfile = usersMap[currentUserId];
+                        const truncatedId = currentUserId.substring(0, 8) + '...';
+                        const userType = isGuest ? ' (गेस्ट)' : '';
+                        userIdDisplay.textContent = `${currentProfile.username} (${truncatedId})${userType}`;
+
+                        // 🎯 NEW: गेस्ट यूज़र को सीधे 'chat' व्यू पर भेजें (पब्लिक चैट)
+                        showView('chat'); 
+                        
+                    } else {
+                        if (initialAuthToken) {
+                            try {
+                                await signInWithCustomToken(auth, initialAuthToken);
+                            } catch (e) {
+                                showError("लॉग इन विफल। कृपया दोबारा लोड करें या क्रेडेंशियल्स का उपयोग करें।");
+                                showView('auth');
+                            }
+                        } else {
+                            showView('auth');
+                        }
+                    }
+                });
+
+            } catch (err) {
+                showView('loading'); 
+                showError(`Firebase शुरू करने में गंभीर त्रुटि: ${err.message}`);
+            }
+        };
+
+        // ----------------------------------------------------------------------------------
+        // --- NEW GAME LOGIC FUNCTIONS ---
+        // ----------------------------------------------------------------------------------
+
+        // --- 1. Guess The Number Logic (gn*) ---
+        let gnGameState = {
+            secretNumber: 0,
+            attempts: 0,
+            isRunning: false
+        };
+
+        function gnResetGame() {
+            gnGameState.secretNumber = Math.floor(Math.random() * 100) + 1;
+            gnGameState.attempts = 0;
+            gnGameState.isRunning = true;
+            gnUpdateGameUI();
+            gnInput.value = '';
+            gnInput.disabled = false;
+            gnSubmitButton.disabled = false;
+            gnInput.focus();
+            gnGameMessage.textContent = '1 से 100 के बीच एक संख्या का अंदाज़ा लगाएँ।';
+        }
+
+        function gnUpdateGameUI() {
+            gnAttempts.textContent = gnGameState.attempts;
+            gnStartGameButton.textContent = gnGameState.isRunning ? 'गेम रीसेट करें' : 'नया गेम शुरू करें';
+        }
+
+        function gnHandleGuess() {
+            if (!gnGameState.isRunning) return;
+
+            const guess = parseInt(gnInput.value);
+            gnInput.value = ''; // Clear input immediately
+
+            if (isNaN(guess) || guess < 1 || guess > 100) {
+                gnGameMessage.textContent = '❌ कृपया 1 से 100 के बीच एक वैध संख्या डालें।';
+                return;
+            }
+
+            gnGameState.attempts++;
+            gnUpdateGameUI();
+
+            if (guess === gnGameState.secretNumber) {
+                gnGameMessage.textContent = `🎉 जीत गए! आपने ${gnGameState.attempts} प्रयासों में सही अंदाज़ा लगाया!`;
+                gnGameState.isRunning = false;
+                gnInput.disabled = true;
+                gnSubmitButton.disabled = true;
+                showStatus(`संख्या का अंदाज़ा स्कोर: ${gnGameState.attempts} प्रयास`, 5000); // 🆕 Show game status
+
+            } else if (guess < gnGameState.secretNumber) {
+                gnGameMessage.textContent = `⬆️ बहुत कम! ${guess} से बड़ा अंदाज़ा लगाएँ।`;
+            } else {
+                gnGameMessage.textContent = `⬇️ बहुत ऊँचा! ${guess} से छोटा अंदाज़ा लगाएँ।`;
+            }
+            gnInput.focus();
+        }
+        
+        gnSubmitButton.addEventListener('click', gnHandleGuess);
+        gnInput.addEventListener('keypress', (e) => {
+             if (e.key === 'Enter') gnHandleGuess();
+        });
+        gnStartGameButton.addEventListener('click', gnResetGame);
+
+
+        // --- 2. Quick Click Logic (qc*) ---
+        const QC_MAX_ROUNDS = 5;
+        let qcGameState = {
+            roundsCompleted: 0,
+            reactionTimes: [],
+            isRunning: false,
+            waitingForClick: false,
+            startTime: 0,
+            timeout: null,
+            minDelay: 2000, // 2 seconds
+            maxDelay: 5000, // 5 seconds
+        };
+
+        function qcResetGame() {
+            clearTimeout(qcGameState.timeout);
+            qcGameState = {
+                roundsCompleted: 0,
+                reactionTimes: [],
+                isRunning: false,
+                waitingForClick: false,
+                startTime: 0,
+                timeout: null,
+                minDelay: 2000, 
+                maxDelay: 5000,
+            };
+            qcTargetButton.classList.add('hidden');
+            qcTargetButton.style.backgroundColor = '#4f46e5'; // Indigo 600
+            qcTargetButton.classList.remove('flashing');
+            qcUpdateGameUI();
+            qcGameMessage.textContent = 'शुरू करने के लिए "शुरू करें" दबाएं।';
+            qcStartGameButton.disabled = false;
+        }
+
+        function qcUpdateGameUI() {
+            qcRound.textContent = `${qcGameState.roundsCompleted} / ${QC_MAX_ROUNDS}`;
+            const avgTime = qcGameState.reactionTimes.length > 0 
+                ? (qcGameState.reactionTimes.reduce((a, b) => a + b, 0) / qcGameState.reactionTimes.length).toFixed(2)
+                : '--';
+            qcAverageTime.textContent = avgTime + ' ms';
+        }
+
+        function qcStartGame() {
+            qcResetGame(); 
+            qcGameState.isRunning = true;
+            qcStartGameButton.disabled = true;
+            qcGameMessage.textContent = 'तैयार हो जाओ! जब यह हरा हो जाए तो क्लिक करें...';
+            qcWait();
+        }
+
+        function qcWait() {
+            if (qcGameState.roundsCompleted >= QC_MAX_ROUNDS) {
+                qcGameOver();
+                return;
+            }
+
+            qcTargetButton.classList.add('hidden');
+            qcTargetButton.style.backgroundColor = '#4f46e5'; // Blue/Indigo
+            qcTargetButton.classList.remove('flashing');
+            qcGameState.waitingForClick = false;
+            
+            const randomDelay = Math.random() * (qcGameState.maxDelay - qcGameState.minDelay) + qcGameState.minDelay;
+            
+            qcGameState.timeout = setTimeout(() => {
+                qcFlash();
+            }, randomDelay);
+        }
+
+        function qcFlash() {
+            qcTargetButton.classList.remove('hidden');
+            qcTargetButton.style.backgroundColor = '#10b981'; // Green
+            qcTargetButton.classList.add('flashing');
+            qcGameState.waitingForClick = true;
+            qcGameState.startTime = performance.now();
+            qcGameMessage.textContent = '🟢 क्लिक करें! क्लिक करें!';
+        }
+
+        function qcHandleClick(e) {
+            if (!qcGameState.isRunning) {
+                if (e.target.id === 'qc-target-button' && qcTargetButton.classList.contains('hidden')) {
+                     qcStartGame(); 
+                }
+                return;
+            }
+
+            if (!qcGameState.waitingForClick) {
+                // Clicked too early (while it was blue/waiting)
+                qcGameMessage.textContent = '❌ बहुत जल्दी! -500ms जुर्माना। शुरू करने के लिए फिर से क्लिक करें।';
+                qcTargetButton.classList.add('hidden');
+                clearTimeout(qcGameState.timeout);
+                qcTargetButton.style.backgroundColor = '#ef4444'; // Red
+                qcTargetButton.classList.remove('flashing');
+                qcGameState.isRunning = false;
+                qcStartGameButton.disabled = false;
+                qcUpdateGameUI();
+                return;
+            }
+
+            const endTime = performance.now();
+            const reactionTime = endTime - qcGameState.startTime;
+            qcGameState.reactionTimes.push(reactionTime);
+            qcGameState.roundsCompleted++;
+            
+            qcGameMessage.textContent = `✅ प्रतिक्रिया समय: ${reactionTime.toFixed(2)} ms`;
+            
+            qcTargetButton.classList.add('hidden');
+            qcTargetButton.classList.remove('flashing');
+            qcUpdateGameUI();
+
+            if (qcGameState.roundsCompleted < QC_MAX_ROUNDS) {
+                setTimeout(qcWait, 1000); // 1-second pause between rounds
+            } else {
+                qcGameOver();
+            }
+        }
+
+        function qcGameOver() {
+            qcGameState.isRunning = false;
+            qcStartGameButton.disabled = false;
+            const avgTime = (qcGameState.reactionTimes.reduce((a, b) => a + b, 0) / QC_MAX_ROUNDS).toFixed(2);
+            qcGameMessage.textContent = `🏆 गेम समाप्त! आपका औसत समय ${avgTime} ms है!`;
+            showStatus(`तेज़ क्लिक स्कोर: ${avgTime} ms`, 5000);
+        }
+
+        qcTargetButton.addEventListener('click', qcHandleClick);
+        qcTargetArea.addEventListener('click', qcHandleClick); // Area click for early penalty
+        qcStartGameButton.addEventListener('click', qcStartGame);
+        // ----------------------------------------------------------------------------------
+        // --- END OF NEW GAME LOGIC FUNCTIONS ---
+        // ----------------------------------------------------------------------------------
+
+
+        // Game Card Handlers
+        gameCardElements.forEach(card => {
+            card.addEventListener('click', (e) => {
+                const gameType = card.dataset.game;
+                
+                const button = card.querySelector('button');
+                if (button && e.target === button) {
+                    e.preventDefault(); 
+                }
+
+                currentGame = gameType;
+                gameActiveTitle.textContent = card.querySelector('h4').textContent;
+                
+                // Hide all new game UIs
+                guessNumberUI.classList.add('hidden');
+                quickClickUI.classList.add('hidden');
+                
+                // Show selected game UI and initialize
+                if (gameType === 'guess_number') {
+                    guessNumberUI.classList.remove('hidden');
+                    gnResetGame();
+                } else if (gameType === 'quick_click') {
+                    quickClickUI.classList.remove('hidden');
+                    qcResetGame();
+                }
+                
+                showView('active-game');
+            });
+        });
+
+        backToLobbyButton.addEventListener('click', () => {
+             showView('game-lobby');
+        });
+        
+        // --- Profile Modal Functions (Updated for FEATURE 1) ---
+        
+        function updateColorPreview(color) {
+            colorPreview.style.backgroundColor = color;
+        }
+
+        function openProfileModal() {
+            if (currentUserId && usersMap[currentUserId]) {
+                const userProfile = usersMap[currentUserId];
+                usernameInput.value = userProfile.username;
+                bioInput.value = userProfile.bio || ''; 
+                colorInput.value = userProfile.color;
+                updateColorPreview(userProfile.color);
+                
+                // 🟢 Load Status and Bubble Style
+                statusInput.value = userProfile.status || 'online';
+                if (userProfile.bubbleStyle === 'sharp') {
+                     bubbleStyleSharp.checked = true;
+                } else {
+                     bubbleStyleDefault.checked = true;
+                }
+                
+                // 🆕 FEATURE 1: Load NEW Fields
+                timezoneInput.value = userProfile.timezone || 'Asia/Kolkata'; 
+                languageInput.value = userProfile.language || 'hi-IN';
+            }
+            profileModal.classList.remove('hidden');
+            profileStatus.textContent = ''; 
+            copyStatus.textContent = ''; 
+            hideError();
+            closeDropdown(); // Dropdown बंद करें
+        }
+
+        function closeProfileModal() {
+            profileModal.classList.add('hidden');
+        }
+        
+        profileButton.addEventListener('click', openProfileModal);
+        closeProfileModalButton.addEventListener('click', closeProfileModal);
+        profileModal.addEventListener('click', (e) => {
+            if (e.target.id === 'profile-modal') {
+                closeProfileModal();
+            }
+        });
+
+        colorInput.addEventListener('input', (e) => {
+            updateColorPreview(e.target.value);
+        });
+
+        profileForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const newUsername = usernameInput.value.trim();
+            const newBio = bioInput.value.trim().substring(0, 100); 
+            const newColor = colorInput.value;
+            // 🟢 Get new status and bubble style
+            const newStatus = statusInput.value;
+            const newBubbleStyle = document.querySelector('input[name="bubble-style"]:checked').value;
+            // 🆕 FEATURE 1: Get NEW Fields
+            const newTimezone = timezoneInput.value.trim(); 
+            const newLanguage = languageInput.value; 
+            
+            if (!newUsername || !currentUserId || newUsername.length > 20) {
+                profileStatus.textContent = "यूजरनेम 1-20 वर्णों का होना चाहिए।";
+                profileStatus.className = 'text-sm text-center font-bold text-red-500';
+                return;
+            }
+
+            saveProfileButton.disabled = true;
+            
+            try {
+                const userRef = doc(db, `artifacts/${appId}/users/${currentUserId}/userConfig/profile`);
+                const userDocRef = doc(db, `artifacts/${appId}/users/${currentUserId}`); 
+                
+                const newProfileData = { 
+                    username: newUsername, 
+                    color: newColor, 
+                    bio: newBio,
+                    status: newStatus, 
+                    bubbleStyle: newBubbleStyle,
+                    timezone: newTimezone, // 🆕
+                    language: newLanguage // 🆕
+                };
+
+                await setDoc(userRef, newProfileData, { merge: true });
+                await setDoc(userDocRef, { userConfig: { profile: newProfileData } }, { merge: true });
+                
+                // Update local map
+                usersMap[currentUserId].username = newUsername;
+                usersMap[currentUserId].color = newColor;
+                usersMap[currentUserId].bio = newBio;
+                usersMap[currentUserId].status = newStatus; 
+                usersMap[currentUserId].bubbleStyle = newBubbleStyle; 
+                usersMap[currentUserId].timezone = newTimezone; // 🆕
+                usersMap[currentUserId].language = newLanguage; // 🆕
+                
+                profileStatus.textContent = "प्रोफाइल सफलतापूर्वक अपडेट हुई!";
+                profileStatus.className = 'text-sm text-center font-bold text-green-600 dark:text-green-400';
+                
+                const truncatedId = currentUserId.substring(0, 8) + '...';
+                const userType = isGuest ? ' (गेस्ट)' : '';
+                userIdDisplay.textContent = `${newProfileData.username} (${truncatedId})${userType}`;
+
+                loadAllUsers(); 
+                
+            } catch (err) {
+                profileStatus.textContent = `सेव करने में त्रुटि: ${err.message}`;
+                profileStatus.className = 'text-sm text-center font-bold text-red-500';
+                console.error("Profile Save Error:", err);
+            } finally {
+                saveProfileButton.disabled = false;
+                if (profileStatus.classList.contains('text-green-600')) {
+                    setTimeout(closeProfileModal, 1500);
+                }
+            }
+        });
+        
+        // 🟢 Copy User ID Button Logic
+
+        copyUserIdButton.addEventListener('click', async () => {
+            if (!currentUserId) return;
+            
+            try {
+                await navigator.clipboard.writeText(currentUserId);
+                copyStatus.textContent = 'यूज़र ID कॉपी हुई!';
+                copyStatus.className = 'text-sm font-medium text-green-600 dark:text-green-400';
+                setTimeout(() => {
+                    copyStatus.textContent = '';
+                }, 3000);
+            } catch (err) {
+                copyStatus.textContent = 'कॉपी करने में त्रुटि।';
+                copyStatus.className = 'text-sm font-medium text-red-500';
+            }
+        });
+
+
+        // --- Firestore Profile Functions (Load) (Updated for FEATURE 1) ---
+
+        async function loadUserProfile(uid, email, isAnon) {
+            const autoColor = getChatColor(uid); 
+            let defaultUsername;
+
+            if (isAnon) {
+                defaultUsername = `Guest_${uid.substring(0, 4)}`;
+            } else if (email) {
+                defaultUsername = email.split('@')[0];
+            } else {
+                 defaultUsername = `User_${uid.substring(0, 4)}`;
+            }
+
+            const userRef = doc(db, `artifacts/${appId}/users/${uid}/userConfig/profile`);
+            const userDocRef = doc(db, `artifacts/${appId}/users/${uid}`);
+            
+            try {
+                const docSnap = await getDoc(userRef);
+                
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    usersMap[uid] = { 
+                        username: data.username || defaultUsername, 
+                        color: data.color || autoColor,
+                        bio: data.bio || '',
+                        status: data.status || 'online', 
+                        bubbleStyle: data.bubbleStyle || 'default',
+                        timezone: data.timezone || 'Asia/Kolkata', // 🆕
+                        language: data.language || 'hi-IN' // 🆕
+                    };
+                } else {
+                    usersMap[uid] = { 
+                        username: defaultUsername, 
+                        color: autoColor, 
+                        bio: '',
+                        status: 'online', 
+                        bubbleStyle: 'default',
+                        timezone: 'Asia/Kolkata', // 🆕
+                        language: 'hi-IN' // 🆕
+                    };
+                    
+                    if (!isAnon) {
+                        const initialProfileData = { 
+                            username: defaultUsername, 
+                            color: autoColor, 
+                            bio: '', 
+                            status: 'online', 
+                            bubbleStyle: 'default',
+                            timezone: 'Asia/Kolkata', // 🆕
+                            language: 'hi-IN' // 🆕
+                        };
+                        await setDoc(userRef, initialProfileData, { merge: true });
+                        await setDoc(userDocRef, { userConfig: { profile: initialProfileData } }, { merge: true });
+                    }
+                }
+            } catch (e) {
+                usersMap[uid] = { 
+                    username: defaultUsername, 
+                    color: autoColor, 
+                    bio: '', 
+                    status: 'online', 
+                    bubbleStyle: 'default',
+                    timezone: 'Asia/Kolkata', 
+                    language: 'hi-IN' 
+                };
+                console.warn(`Could not load/save profile for ${uid}: ${e.message}`);
+            }
+        }
+        
+        // --- Message Rendering (Updated for Status and Hover Bio and DM click) ---
+
+        function getStatusEmoji(status) {
+            switch (status) {
+                case 'online': return '🟢'; // Green dot
+                case 'away': return '🟡';   // Yellow dot
+                case 'busy': return '🔴';   // Red dot
+                default: return '⚪';      // White/Gray dot
+            }
+        }
+
+        function renderMessage(msg) {
+            const isMyMessage = msg.userId === currentUserId;
+            
+            // यूज़र की प्रोफाइल डिटेल्स लोड करें, या डिफॉल्ट वैल्यू दें
+            const details = usersMap[msg.userId] || { 
+                username: `Loading...`, 
+                color: getChatColor(msg.userId),
+                bio: '',
+                status: 'online',
+                bubbleStyle: 'default' 
+            };
+            
+            // 🟢 बबल स्टाइल क्लास को निर्धारित करें (तेज कोने या गोल)
+            const bubbleStyleClass = details.bubbleStyle === 'sharp' 
+                ? 'rounded-none' 
+                : (isMyMessage ? 'rounded-br-none' : 'rounded-tl-none');
+
+
+            const messageEl = document.createElement('div');
+            messageEl.className = `flex ${isMyMessage ? 'justify-end' : 'justify-start'}`;
+            
+            // Bio को Hover के लिए तैयार करें
+            const bioText = details.bio ? details.bio.substring(0, 100) : ''; 
+            
+            // 🟠 यूज़रनेम और स्टेटस डिस्प्ले (मैसेज भेजने वाले के लिए नहीं)
+            let headerHtml = '';
+            if (!isMyMessage) {
+                const statusEmoji = getStatusEmoji(details.status);
+                
+                // 🆕 FEATURE 3: Username shading based on status
+                let usernameStyle = '';
+                if (details.status === 'away') {
+                     usernameStyle = 'opacity: 0.6;'; 
+                } else if (details.status === 'busy') {
+                     usernameStyle = 'opacity: 0.8; font-weight: 700;'; 
+                }
+                
+                headerHtml = `
+                    <div class="flex items-center mb-1 relative group" style="color: ${details.color}; ${usernameStyle}">
+                        <p class="text-sm font-extrabold break-words">
+                            ${statusEmoji} 
+                            <span class="hover:underline cursor-pointer user-dm-target" data-uid="${msg.userId}">${details.username}</span>
+                        </p>
+                        
+                        ${bioText ? `
+                            <div class="absolute z-50 top-full left-0 mt-1 w-64 p-3 bg-gray-900 text-white text-xs rounded-lg shadow-xl border border-indigo-500 opacity-0 invisible transition-opacity duration-300 group-hover:opacity-100 group-hover:visible">
+                                <span class="font-bold text-indigo-400">बायो:</span> ${bioText}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }
+
+            messageEl.innerHTML = `
+                <div class="message-bubble max-w-[85%] sm:max-w-md p-3 rounded-xl shadow-xl transition-all duration-200 
+                    ${isMyMessage 
+                        ? `bg-indigo-600 text-white ${bubbleStyleClass}`
+                        : `bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-600 ${bubbleStyleClass}`
+                    }">
+                    
+                    ${headerHtml} 
+
+                    <p class="text-sm whitespace-pre-wrap ${!isMyMessage ? 'mt-0' : ''}">${msg.text}</p>
+                    
+                    <p class="text-xs mt-1 text-right 
+                        ${isMyMessage ? 'text-indigo-200' : 'text-gray-500 dark:text-gray-400'}">
+                        ${formatTimestamp(msg.createdAt)}
+                    </p>
+                </div>
+            `;
+            return messageEl;
+        }
+
+
+        // --- Auth View Handlers (Updated for simplified guest flow) ---
+
+        function updateAuthViewMode() {
+            authStatus.textContent = '';
+            authForm.reset();
+            authPasswordInput.type = 'password'; 
+            eyeOpenIcon.classList.add('hidden');
+            eyeClosedIcon.classList.remove('hidden');
+
+            if (isSignupMode) {
+                authTitle.textContent = 'नया अकाउंट बनाएं';
+                authSubtitle.textContent = 'चैट में भाग लेने के लिए साइन अप करें।';
+                authSubmitButton.textContent = 'साइन अप करें';
+                toggleAuthModeButton.textContent = 'अकाउंट है? लॉग इन करें';
+            } else {
+                authTitle.textContent = 'चैट में लॉग इन करें';
+                authSubtitle.textContent = 'चैट में शामिल होने के लिए अपना ईमेल और पासवर्ड डालें।';
+                authSubmitButton.textContent = 'लॉग इन करें';
+                toggleAuthModeButton.textContent = 'अकाउंट नहीं है? साइन अप करें';
+            }
+            authEmailInput.focus();
+        }
+
+        togglePasswordView.addEventListener('click', () => {
+            const isPassword = authPasswordInput.type === 'password';
+            authPasswordInput.type = isPassword ? 'text' : 'password';
+            eyeOpenIcon.classList.toggle('hidden', !isPassword);
+            eyeClosedIcon.classList.toggle('hidden', isPassword);
+        });
+
+        toggleAuthModeButton.addEventListener('click', (e) => {
+            e.preventDefault();
+            isSignupMode = !isSignupMode;
+            updateAuthViewMode();
+        });
+
+        authGuestButton.addEventListener('click', async () => {
+            try {
+                if (!auth.currentUser || !auth.currentUser.isAnonymous) {
+                    if (auth.currentUser) await signOut(auth);
+                    await signInAnonymously(auth); 
+                }
+                // 🎯 NEW: सीधे चैट व्यू पर जाएँ
+                showView('chat'); 
+                
+            } catch (e) {
+                showError(`गेस्ट लॉग इन विफल: ${e.message}`);
+                showView('auth');
+            }
+        });
+
+        authForgotPasswordButton.addEventListener('click', openResetModal);
+
+        lobbyToLoginButton.addEventListener('click', () => {
+            if (isGuest) signOut(auth);
+            showView('auth'); 
+            authStatus.textContent = 'अपनी प्रगति सहेजने के लिए लॉग इन करें।';
+            authStatus.className = 'text-sm text-center font-bold mt-3 text-indigo-500 dark:text-purple-400';
+        });
+        
+        gameActiveToLoginButton.addEventListener('click', () => {
+            if (isGuest) signOut(auth);
+            showView('auth'); 
+            authStatus.textContent = 'अपनी प्रगति सहेजने के लिए लॉग इन करें।';
+            authStatus.className = 'text-sm text-center font-bold mt-3 text-indigo-500 dark:text-purple-400';
+        });
+        
+        // 🎮 NEW: Game Access Icon
+        gameAccessIcon.addEventListener('click', () => {
+             // गेस्ट को गेम लॉबी/लिस्ट पर ले जाता है
+             showView('game-lobby');
+        });
+
+
+        function openResetModal() {
+            resetModal.classList.remove('hidden');
+            resetStatus.textContent = '';
+            hideError();
+        }
+
+        function closeResetModal() {
+            resetModal.classList.add('hidden');
+        }
+
+        closeResetModalButton.addEventListener('click', closeResetModal);
+        resetModal.addEventListener('click', (e) => {
+            if (e.target.id === 'reset-modal') closeResetModal();
+        });
+
+        authForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = authEmailInput.value;
+            const password = authPasswordInput.value;
+
+            authSubmitButton.disabled = true;
+            authStatus.textContent = isSignupMode ? 'साइन अप कर रहा हूँ...' : 'लॉग इन कर रहा हूँ...';
+            authStatus.className = 'text-sm text-center font-bold mt-3 text-indigo-500 dark:text-purple-400';
+            
+            try {
+                if (isSignupMode) {
+                    await createUserWithEmailAndPassword(auth, email, password);
+                } else {
+                    await signInWithEmailAndPassword(auth, email, password);
+                }
+            } catch (err) {
+                let displayMessage = "लॉग इन / साइन अप त्रुटि।";
+                if (err.code === 'auth/weak-password') {
+                    displayMessage = "पासवर्ड बहुत कमज़ोर है (न्यूनतम 6 अक्षर)।";
+                } else if (err.code === 'auth/email-already-in-use') {
+                    displayMessage = "यह ईमेल पहले से उपयोग में है।";
+                } else if (err.code === 'auth/invalid-email') {
+                    displayMessage = "अमान्य ईमेल प्रारूप।";
+                } else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+                    displayMessage = "अमान्य क्रेडेंशियल्स।";
+                }
+                authStatus.textContent = displayMessage;
+                authStatus.className = 'text-sm text-center font-bold mt-3 text-red-500';
+                console.error("Auth Error:", err);
+            } finally {
+                authSubmitButton.disabled = false;
+            }
+        });
+
+        resetForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = resetEmailInput.value.trim();
+             if (!email) {
+                resetStatus.textContent = " कृपया ईमेल डालें।";
+                resetStatus.className = 'text-sm text-center font-medium text-red-500';
+                return;
+            }
+
+            sendResetButton.disabled = true;
+            resetStatus.textContent = 'लिंक भेज रहा हूँ...';
+            resetStatus.className = 'text-sm text-center font-medium text-indigo-500 dark:text-purple-400';
+            
+            try {
+                await sendPasswordResetEmail(auth, email);
+                
+                resetStatus.textContent = `रीसेट लिंक ${email} पर भेजा गया है।`;
+                resetStatus.className = 'text-sm text-center font-medium text-green-600 dark:text-green-400';
+                
+                setTimeout(() => {
+                    closeResetModal();
+                    showStatus(`रीसेट लिंक ${email} पर भेजा गया।`, 5000);
+                }, 2000);
+
+            } catch (err) {
+                 let displayMessage = "रीसेट त्रुटि।";
+                 if (err.code === 'auth/invalid-email') {
+                    displayMessage = "अमान्य ईमेल प्रारूप।";
+                 } else if (err.code === 'auth/user-not-found') {
+                    displayMessage = "यह ईमेल रजिस्टर्ड नहीं है।";
+                 } else {
+                    displayMessage = `रीसेट विफल: ${err.message}`;
+                 }
+                resetStatus.textContent = displayMessage;
+                resetStatus.className = 'text-sm text-center font-medium text-red-500';
+                console.error("Password Reset Error:", err);
+            } finally {
+                sendResetButton.disabled = false;
+            }
+        });
+        
+        signoutButton.addEventListener('click', async () => {
+            await signOut(auth).catch(e => {
+                showError(`साइन आउट त्रुटि: ${e.message}`);
+            });
+            closeDropdown(); // Dropdown बंद करें
+        });
+        
+        
+        // --- 🆕 FEATURE 4: Leaderboard Logic ---
+        // (Local/Dummy data - for demonstration)
+
+        const DUMMY_LEADERS = {
+            quick_click: [
+                { name: 'NinjaPro', score: 187.34, game: 'quick_click' },
+                { name: '⚡Guest_1A2B', score: 201.99, game: 'quick_click' },
+                { name: 'Speedster', score: 215.11, game: 'quick_click' },
+            ],
+            guess_number: [
+                { name: 'Brainiac', score: 4, game: 'guess_number' },
+                { name: '🧐Guest_C3D4', score: 6, game: 'guess_number' },
+                { name: 'LuckyGuess', score: 8, game: 'guess_number' },
+            ]
+        };
+
+        function renderLeaderboard(gameType) {
+            const listElement = gameType === 'quick_click' ? qcLeaderboardList : gnLeaderboardList;
+            listElement.innerHTML = '';
+            const leaders = DUMMY_LEADERS[gameType];
+            
+            // Sort logic (QC: lower score is better; GN: lower score is better)
+            leaders.sort((a, b) => a.score - b.score);
+            
+            leaders.forEach((leader, index) => {
+                const rank = index + 1;
+                const rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '✨';
+                const scoreUnit = gameType === 'quick_click' ? 'ms' : 'प्रयास';
+                
+                const leaderItem = document.createElement('div');
+                leaderItem.className = `flex justify-between items-center p-3 rounded-lg ${rank === 1 ? 'bg-yellow-900 border-l-4 border-yellow-400' : 'bg-gray-700'}`;
+                leaderItem.innerHTML = `
+                    <span class="text-xl font-extrabold text-white">${rankEmoji} ${leader.name}</span>
+                    <span class="text-lg font-bold ${rank <= 3 ? 'text-yellow-400' : 'text-green-400'}">${leader.score} ${scoreUnit}</span>
+                `;
+                listElement.appendChild(leaderItem);
+            });
+            
+            qcLeaderboardList.classList.add('hidden');
+            gnLeaderboardList.classList.add('hidden');
+            listElement.classList.remove('hidden');
+        }
+
+        leaderboardTabs.forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const gameType = e.target.dataset.leaderboard;
+                leaderboardTabs.forEach(t => {
+                    t.classList.remove('bg-indigo-600', 'text-white');
+                    t.classList.add('bg-gray-700', 'text-gray-400', 'hover:bg-gray-600');
+                });
+                e.target.classList.add('bg-indigo-600', 'text-white');
+                e.target.classList.remove('bg-gray-700', 'text-gray-400', 'hover:bg-gray-600');
+                
+                renderLeaderboard(gameType);
+            });
+        });
+
+        // Initial call to render Quick Click leaderboard (will run once views are ready)
+        // renderLeaderboard('quick_click');
+
+
+    </script>
+</body>
+</html>
